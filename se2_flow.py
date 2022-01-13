@@ -1,5 +1,6 @@
 import math
 import os
+import sys
 import multiprocessing
 import string
 
@@ -16,7 +17,8 @@ import slycot
 import pyhull
 from pytope import Polytope
 import picos
-
+from math import pi, cos, sin, sqrt
+from pyobb.obb import OBB
 
 def matrix_exp(A, n=30):
     s = np.zeros((3, 3))
@@ -366,11 +368,14 @@ def maxw(sol, x, w1_mag, w2_mag):
     U2 = U[:, 2]
     P = sol['P']
 
-    w1 = U1.T@P@x.vee
-    w1 *= -w1_mag/np.linalg.norm(w1)
-
-    w2 = U2.T@P@x.vee
-    w2 *= w2_mag/np.linalg.norm(w2)
+    if np.linalg.norm(x.vee) < 1e-5:
+        w1 = np.array([0, w1_mag])
+        w2 = w2_mag
+    else:
+        w1 = U1.T@P@x.vee
+        w2 = U2.T@P@x.vee
+        w1 *= w1_mag/np.linalg.norm(w1)
+        w2 *= w2_mag/np.linalg.norm(w2)
     return w1, w2
 
 def dynamics(t, y_vect, freq_d, w1_mag, w2_mag, dist, sol, use_approx):
@@ -387,20 +392,27 @@ def dynamics(t, y_vect, freq_d, w1_mag, w2_mag, dist, sol, use_approx):
     v_r = se2(x=1, y=0, theta=4*np.pi/1155*(1 - np.cos(2*np.pi*t/10))**6)
     
     # disturbance
-    if dist == 'sine':
-        w = se2(x=np.cos(2*np.pi*freq_d*t)*w1_mag, y=np.sin(2*np.pi*freq_d*t)*w1_mag, theta=np.cos(2*np.pi*freq_d*t)*w2_mag)
-    # square wave
-    elif dist == 'square':
-        w = se2(x=0, y=signal.square(2*np.pi*freq_d*t)*w1_mag, theta=signal.square(2*np.pi*freq_d*t)*w2_mag)
-    # maximize dV
-    elif dist == 'maxdV':
-        er = e.vee
-        w1, w2 = maxw(sol, e, w1_mag, w2_mag)
-        w = se2(w1[0], w1[1], w2)
-        #print(w1, w2)
-    elif dist == 'const':
-        w = se2(0, w1_mag, w2_mag)
-        
+    if dist == 'none':
+        w = se2(0, 0, 0)     
+    else:
+        theta = 2*np.pi*freq_d*t
+        if dist == 'sine':
+            w = se2(x=np.cos(theta)*w1_mag, y=np.sin(theta)*w1_mag, theta=np.cos(theta)*w2_mag)
+        # square wave
+        elif dist == 'square':
+            w = se2(x=0, y=signal.square(theta)*w1_mag, theta=signal.square(theta)*w2_mag)
+        # maximize dV
+        elif dist == 'maxdV':
+            er = e.vee
+            w1, w2 = maxw(sol, e, w1_mag, w2_mag)
+            w = se2(w1[0], w1[1], w2)
+            #print(w1, w2)
+        elif dist == 'const':
+            w = se2(0, w1_mag, w2_mag)   
+
+        assert np.linalg.norm([w.x, w.y]) < w1_mag + 1e-5
+        assert np.linalg.norm(w.theta) < w2_mag + 1e-5
+
     # control law applied to non-linear error
     u_nl = control_law(B, K, e_nl)
     v_nl = v_r + u_nl + w
@@ -770,8 +782,7 @@ def se2_log(a):
     p = V_inv@np.array([x, y])
     return np.array([p[0], p[1], theta])
 
-def plot_invariant_set():
-    sol = find_se2_invariant_set()
+def plot_invariant_set(sol, w1, w2):
     w1 = 1
     w2 = 1
     e = np.array([0, 0, 0]) # Lie Group
@@ -848,8 +859,8 @@ def plot_invariant_set():
     plt.tight_layout()
 
 def rotate_point(point, angle):
-    new_point = array([point[0] * cos(angle) - point[1] * sin(angle),
-                 point[0] * sin(angle) + point[1] * cos(angle)])
+    new_point = np.array([point[0] * np.cos(angle) - point[1] * np.sin(angle),
+                 point[0] * np.sin(angle) + point[1] * np.cos(angle)])
     return new_point
 
 def flowpipes(res, tf, n, e0, w1, w2, sol):
@@ -896,12 +907,12 @@ def flowpipes(res, tf, n, e0, w1, w2, sol):
         # fix mess up part
         if angle > 3:
             if i < int(n/3):
-                angle = angle - pi
+                angle = angle - np.pi
         if angle < 1:
             if i > int(n/3):
                 a = i
         if i >= a:
-            angle = angle + pi
+            angle = angle + np.pi
         
         t = 0.05*i*steps
         # invariant set in se2
@@ -1056,7 +1067,7 @@ def minBoundingRect(hull_points_2d):
     #print hull_points_2d
 
     # Compute edges (x2-x1,y2-y1)
-    edges = zeros( (len(hull_points_2d)-1,2) ) # empty 2 column array
+    edges = np.zeros( (len(hull_points_2d)-1,2) ) # empty 2 column array
     for i in range( len(edges) ):
         edge_x = hull_points_2d[i+1,0] - hull_points_2d[i,0]
         edge_y = hull_points_2d[i+1,1] - hull_points_2d[i,1]
@@ -1064,7 +1075,7 @@ def minBoundingRect(hull_points_2d):
     #print "Edges: \n", edges
 
     # Calculate edge angles   atan2(y/x)
-    edge_angles = zeros( (len(edges)) ) # empty 1 column array
+    edge_angles = np.zeros( (len(edges)) ) # empty 1 column array
     for i in range( len(edge_angles) ):
         edge_angles[i] = math.atan2( edges[i,1], edges[i,0] )
     #print "Edge angles: \n", edge_angles
@@ -1075,7 +1086,7 @@ def minBoundingRect(hull_points_2d):
     #print "Edge angles in 1st Quadrant: \n", edge_angles
 
     # Remove duplicate angles
-    edge_angles = unique(edge_angles)
+    edge_angles = np.unique(edge_angles)
     #print "Unique edge angles: \n", edge_angles
 
     # Test each angle to find bounding box with smallest area
@@ -1086,18 +1097,18 @@ def minBoundingRect(hull_points_2d):
         # Create rotation matrix to shift points to baseline
         # R = [ cos(theta)      , cos(theta-PI/2)
         #       cos(theta+PI/2) , cos(theta)     ]
-        R = array([ [ math.cos(edge_angles[i]), math.cos(edge_angles[i]-(math.pi/2)) ], [ math.cos(edge_angles[i]+(math.pi/2)), math.cos(edge_angles[i]) ] ])
+        R = np.array([ [ math.cos(edge_angles[i]), math.cos(edge_angles[i]-(math.pi/2)) ], [ math.cos(edge_angles[i]+(math.pi/2)), math.cos(edge_angles[i]) ] ])
         #print "Rotation matrix for ", edge_angles[i], " is \n", R
 
         # Apply this rotation to convex hull points
-        rot_points = dot(R, transpose(hull_points_2d) ) # 2x2 * 2xn
+        rot_points = np.dot(R, np.transpose(hull_points_2d) ) # 2x2 * 2xn
         #print "Rotated hull points are \n", rot_points
 
         # Find min/max x,y points
-        min_x = nanmin(rot_points[0], axis=0)
-        max_x = nanmax(rot_points[0], axis=0)
-        min_y = nanmin(rot_points[1], axis=0)
-        max_y = nanmax(rot_points[1], axis=0)
+        min_x = np.nanmin(rot_points[0], axis=0)
+        max_x = np.nanmax(rot_points[0], axis=0)
+        min_y = np.nanmin(rot_points[1], axis=0)
+        max_y = np.nanmax(rot_points[1], axis=0)
         #print "Min x:", min_x, " Max x: ", max_x, "   Min y:", min_y, " Max y: ", max_y
 
         # Calculate height/width/area of this bounding rectangle
@@ -1114,11 +1125,11 @@ def minBoundingRect(hull_points_2d):
 
     # Re-create rotation matrix for smallest rect
     angle = min_bbox[0]   
-    R = array([ [ math.cos(angle), math.cos(angle-(math.pi/2)) ], [ math.cos(angle+(math.pi/2)), math.cos(angle) ] ])
+    R = np.array([ [ math.cos(angle), math.cos(angle-(math.pi/2)) ], [ math.cos(angle+(math.pi/2)), math.cos(angle) ] ])
     #print "Projection matrix: \n", R
 
     # Project convex hull points onto rotated frame
-    proj_points = dot(R, transpose(hull_points_2d) ) # 2x2 * 2xn
+    proj_points = np.dot(R, np.transpose(hull_points_2d) ) # 2x2 * 2xn
     #print "Project hull points are \n", proj_points
 
     # min/max x,y points are against baseline
@@ -1131,15 +1142,15 @@ def minBoundingRect(hull_points_2d):
     # Calculate center point and project onto rotated frame
     center_x = (min_x + max_x)/2
     center_y = (min_y + max_y)/2
-    center_point = dot( [ center_x, center_y ], R )
+    center_point = np.dot( [ center_x, center_y ], R )
     #print "Bounding box center point: \n", center_point
 
     # Calculate corner points and project onto rotated frame
-    corner_points = zeros( (4,2) ) # empty 2 column array
-    corner_points[0] = dot( [ max_x, min_y ], R )
-    corner_points[1] = dot( [ min_x, min_y ], R )
-    corner_points[2] = dot( [ min_x, max_y ], R )
-    corner_points[3] = dot( [ max_x, max_y ], R )
+    corner_points = np.zeros( (4,2) ) # empty 2 column array
+    corner_points[0] = np.dot( [ max_x, min_y ], R )
+    corner_points[1] = np.dot( [ min_x, min_y ], R )
+    corner_points[2] = np.dot( [ min_x, max_y ], R )
+    corner_points[3] = np.dot( [ max_x, max_y ], R )
     #print "Bounding box corner points: \n", corner_points
 
     #print "Angle of rotation: ", angle, "rad  ", angle * (180/math.pi), "deg"
@@ -1148,21 +1159,22 @@ def minBoundingRect(hull_points_2d):
 
 
 def qhull2D(sample):
-    link = lambda a,b: concatenate((a,b[1:]))
-    edge = lambda a,b: concatenate(([a],[b]))
+    link = lambda a,b: np.concatenate((a,b[1:]))
+    edge = lambda a,b: np.concatenate(([a],[b]))
+
     def dome(sample,base): 
         h, t = base
-        dists = dot(sample-h, dot(((0,-1),(1,0)),(t-h)))
-        outer = repeat(sample, dists>0, 0)
+        dists = np.dot(sample-h, np.dot(((0,-1),(1,0)),(t-h)))
+        outer = np.repeat(sample, dists>0, 0)
         if len(outer):
-            pivot = sample[argmax(dists)]
+            pivot = sample[np.argmax(dists)]
             return link(dome(outer, edge(h, pivot)),
                     dome(outer, edge(pivot, t)))
         else:
             return base
     if len(sample) > 2:
         axis = sample[:,0]
-        base = take(sample, [argmin(axis), argmax(axis)], 0)
+        base = np.take(sample, [np.argmin(axis), np.argmax(axis)], 0)
         return link(dome(sample, base), dome(sample, base[::-1]))
     else:
         return sample
@@ -1197,4 +1209,68 @@ def flowpipes_test(y, r, t, n):
         p_vertices = P.V
         flowpipes.append(p_vertices)
         intervalhull.append(p1_vertices)
+    return flowpipes, intervalhull, nom
+
+
+# creates a lat/lon sphere with a given radius and centered at a given point
+def sphere(radius, center, num_slices=30):
+    theta_step = 2.0 * pi / (num_slices - 1)
+    phi_step = pi / (num_slices - 1.0)
+    theta = 0.0
+    vertices = []
+    for i in range(0, num_slices):
+        cos_theta = cos(theta)
+        sin_theta = sin(theta)
+        phi = 0.0
+        for j in range(0, num_slices):
+            x = -sin(phi) * cos_theta
+            y = -cos(phi)
+            z = -sin(phi) * sin_theta
+            n = sqrt(x * x + y * y + z * z)
+            if n < 0.99 or n > 1.01:
+                x /= n
+                y /= n
+                z /= n
+            vertices.append((x * radius + center[0],
+                             y * radius + center[1],
+                             z * radius + center[2]))
+            phi += phi_step
+        theta += theta_step
+    return vertices
+
+def flowpipes3d(res, points, tf, n):
+    t_vect = np.arange(0, tf, 0.05)
+    
+    y_vect = res['y']
+    x, y, theta, x_r, y_r, theta_r, log_e_x, log_e_y, log_e_theta = [y_vect[i, :] for i in range(len(y_vect))]
+    
+    y = np.array([x_r,y_r]).T
+    
+    nom = np.append(y, np.zeros((y.shape[0],1)), axis = 1) # n*3 (x-y direction) ###########
+    
+    # bound 
+    #theta_circ = np.linspace(0, 2*np.pi, 30)
+    #circ = np.array([1.5*np.cos(theta_circ), 1.5*np.sin(theta_circ), ones(30)]).T # circle in 3D
+    
+    flowpipes = []
+    intervalhull = []
+    steps = int(len(t_vect)/n)
+    
+    for i in range(n):
+        # get traj for certain fixed time interval
+        nom_i = nom[steps*i:steps*(i+1),:] # steps*3
+        
+        # interval hull
+        obb = OBB.build_from_points(nom_i)
+        
+        # minkowski sum
+        P1 = Polytope(obb.points) # interval hull
+        P2 = Polytope(points.T) # invariant set
+        P = P1+P2 # sum
+        
+        p1_vertices = P1.V
+        p_vertices = P.V
+        flowpipes.append(p_vertices)
+        intervalhull.append(p1_vertices)
+        
     return flowpipes, intervalhull, nom
