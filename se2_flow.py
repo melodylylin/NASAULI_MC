@@ -610,10 +610,10 @@ def plot_simulated_corres(res, name=None, legend=False, save=False):
     if save:
         plt.savefig('figures/' + title)
 
-def simulate_and_plot(frequencies, tf, w1_mag, w2_mag):
+def simulate_and_plot(frequencies, tf, x0, y0, theta0, dist, sol, w1_mag, w2_mag):
     def worker(n, freq_d, n_freq, data):
         final = n_freq - 1
-        data[n]  = simulate(tf=tf, freq_d=freq_d, w1_mag=w1_mag, w2_mag=w2_mag, x0=0, y0=0, theta0=0, dist='square', sol='', use_approx=False)
+        data[n]  = simulate(tf=tf, freq_d=freq_d, w1_mag=w1_mag, w2_mag=w2_mag, x0=x0, y0=y0, theta0=theta0, dist=dist, sol=sol, use_approx=False)
         print('#', end='')
 
     print('simulating: ', end='')
