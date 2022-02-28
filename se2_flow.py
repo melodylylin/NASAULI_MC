@@ -689,7 +689,7 @@ def find_se2_invariant_set(verbosity=0):
     # these are the zero order terms of the taylor expansion below
     # TODO: could add polytopic system with bounded input disturbance, U(x) is actually a function of the state not a constant, so this 
     # is an under approximation as is
-    U1 = np.eye(2)*np.pi/2 # multiply singular val of U
+    U1 = np.eye(2)*pi/2 # multiply singular val of U
     U2 = np.array([
         [0],
         [0]])
@@ -783,8 +783,6 @@ def se2_log(a):
     return np.array([p[0], p[1], theta])
 
 def plot_invariant_set(sol, w1, w2):
-    w1 = 1
-    w2 = 1
     e = np.array([0, 0, 0]) # Lie Group
     e0 = se2_log(e) # Lie Algebra
 
@@ -884,7 +882,9 @@ def flowpipes(res, tf, n, e0, w1, w2, sol):
             nom_i = nom[steps*i:steps*(i+1),:] # steps*2
         else:
             nom_i = nom[steps*i:len(t_vect),:]
-            
+        
+        print(nom_i[len(nom_i)-1])
+        
         # Get interval hull
         hull_points = qhull2D(nom_i)
         # Reverse order of points, to match output from other qhull implementations
@@ -913,6 +913,7 @@ def flowpipes(res, tf, n, e0, w1, w2, sol):
                 a = i
         if i >= a:
             angle = angle + np.pi
+        
         
         t = 0.05*i*steps
         # invariant set in se2
