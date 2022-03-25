@@ -676,20 +676,20 @@ def solve_lmi(alpha, A1, A2, U1, U2, verbosity=0):
         'gam': gam
     }
 
-def find_se2_invariant_set(verbosity=0):
+def find_se2_invariant_set(value, verbosity=0):
     dA = np.array([
         [0, -1, 0],
         [1, 0, 0],
         [0, 0, 0]])    
     A0 = solve_control_gain()[2]
-    A1 = A0 + 0*dA
+    A1 = A0 + (0)*dA
     A2 = A0 + np.pi/4*dA
 
     # these are the two parts of U(x), split ast U(x) = [U1, U2], where the first impacts the u, v and the last impacts the w disturbance
     # these are the zero order terms of the taylor expansion below
     # TODO: could add polytopic system with bounded input disturbance, U(x) is actually a function of the state not a constant, so this 
     # is an under approximation as is
-    U1 = np.eye(2)*pi/2 # multiply singular val of U
+    U1 = np.eye(2)*value # multiply singular val of U
     U2 = np.array([
         [0],
         [0]])
@@ -719,6 +719,9 @@ def find_se2_invariant_set(verbosity=0):
         raise RuntimeError('Optimization failed')
         
     return sol
+
+def svd(theta):
+    return (sqrt(-2/(cos(theta)-1))*abs(theta))/2
 
 
 def se2_lie_algebra_invariant_set_points(sol, t, w1_mag, w2_mag, e0): # w1_mag (x-y direc): wind speed
@@ -883,7 +886,7 @@ def flowpipes(res, tf, n, e0, w1, w2, sol):
         else:
             nom_i = nom[steps*i:len(t_vect),:]
         
-        print(nom_i[len(nom_i)-1])
+        #print(nom_i[len(nom_i)-1])
         
         # Get interval hull
         hull_points = qhull2D(nom_i)
